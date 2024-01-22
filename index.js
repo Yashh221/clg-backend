@@ -143,6 +143,9 @@ app.listen(PORT, () => {
   console.log(`Connected to Port ${PORT}`);
 });
 
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 app.post("/api/Login", async (req, res) => {
   try {
     console.log(req.body);
@@ -253,305 +256,292 @@ app.post("/api/Attendance", async (req, res) => {
   }
 });
 //Alloting students to each class/lab
-router.post("/api/AssignStudentsToClassrooms", async (req, res) => {
-    try {
-        const assignedStudents = await ClassRoomModel.aggregate([
+app.post("/api/AssignStudentsToClassrooms", async (req, res) => {
+  try {
+    const assignedStudents = await ClassRoomModel.aggregate([
+      {
+        $lookup: {
+          from: "students", // Assuming the students collection name is 'students'
+          let: { roomNo: "$roomNo", semester: "$Sem" },
+          pipeline: [
             {
-                $lookup: {
-                    from: 'students', // Assuming the students collection name is 'students'
-                    let: { roomNo: "$roomNo", semester: "$Sem" },
-                    pipeline: [
-                        {
-                            $match: {
-                                $expr: {
-                                    $and: [
-                                        { $eq: ["$roomNo", "$$roomNo"] },
-                                        { $lte: ["$Rno", { $multiply: [2, "$semester"] }] }
-                                    ]
-                                }
-                            }
-                        }
-                    ],
-                    as: "students"
-                }
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$roomNo", "$$roomNo"] },
+                    { $lte: ["$Rno", { $multiply: [2, "$semester"] }] },
+                  ],
+                },
+              },
             },
-            {
-                $addFields: {
-                    students: {
-                        $filter: {
-                            input: "$students",
-                            as: "student",
-                            cond: {
-                                $and: [
-                                    { $lte: ["$$student.Rno", { $multiply: [2, "$Sem"] }] }
-                                ]
-                            }
-                        }
-                    }
-                }
+          ],
+          as: "students",
+        },
+      },
+      {
+        $addFields: {
+          students: {
+            $filter: {
+              input: "$students",
+              as: "student",
+              cond: {
+                $and: [{ $lte: ["$$student.Rno", { $multiply: [2, "$Sem"] }] }],
+              },
             },
-            {
-                $project: {
-                    _id: 0,
-                    Rno: { $reduce: { input: "$students.Rno", initialValue: "", in: { $concat: ["$$value", ",", "$$this"] } } },
-                    ClassRoom: {
-                        buildingName: 1,
-                        roomNo: 1,
-                        Sem: 1 // Assuming a fixed semester for illustration, you can modify this based on your requirements
-                    }
-                }
-            }
-        ]);
+          },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          Rno: {
+            $reduce: {
+              input: "$students.Rno",
+              initialValue: "",
+              in: { $concat: ["$$value", ",", "$$this"] },
+            },
+          },
+          ClassRoom: {
+            buildingName: 1,
+            roomNo: 1,
+            Sem: 1, // Assuming a fixed semester for illustration, you can modify this based on your requirements
+          },
+        },
+      },
+    ]);
 
-        res.status(200).json({ message: "success", data: assignedStudents });
-    } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: "Internal Server Error" });
-    }
+    res.status(200).json({ message: "success", data: assignedStudents });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 });
-
 
 //Generate the ISA allocating class rooms and labs
-router.get("/api/ClassRooms", async (req, res) => {
-    try {
-        const classRooms = await ClassRoomModel.find({});
-        res.status(200).json({ message: "success", data: classRooms });
-    } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: "Internal Server Error" });
-    }
+app.get("/api/ClassRooms", async (req, res) => {
+  try {
+    const classRooms = await ClassRoomModel.find({});
+    res.status(200).json({ message: "success", data: classRooms });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 });
-
-module.exports = router;
 
 //Teacher allocation to each class/lab
 
-router.get("/api/TeacherAllocation", async (req, res) => {
-    try {
-        const teacherAllocationDetails = await TimetableModel.aggregate([
-            {
-                $lookup: {
-                    from: 'Teacher', // Assuming the teachers collection name is 'Teacher'
-                    localField: 'Subject',
-                    foreignField: 'Subjects',
-                    as: 'faculty'
-                }
+app.get("/api/TeacherAllocation", async (req, res) => {
+  try {
+    const teacherAllocationDetails = await TimetableModel.aggregate([
+      {
+        $lookup: {
+          from: "Teacher", // Assuming the teachers collection name is 'Teacher'
+          localField: "Subject",
+          foreignField: "Subjects",
+          as: "faculty",
+        },
+      },
+      {
+        $unwind: "$faculty",
+      },
+      {
+        $group: {
+          _id: {
+            Semester: "$Sem",
+            Division: "$Division",
+          },
+          Teachers: {
+            $addToSet: {
+              Name: "$faculty.Name",
+              Subjects: "$Subject",
             },
-            {
-                $unwind: "$faculty"
-            },
-            {
-                $group: {
-                    _id: {
-                        Semester: "$Sem",
-                        Division: "$Division"
-                    },
-                    Teachers: {
-                        $addToSet: {
-                            Name: "$faculty.Name",
-                            Subjects: "$Subject"
-                        }
-                    }
-                }
-            },
-            {
-                $project: {
-                    _id: 0,
-                    Semester: "$_id.Semester",
-                    Division: "$_id.Division",
-                    Teachers: 1
-                }
-            }
-        ]);
+          },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          Semester: "$_id.Semester",
+          Division: "$_id.Division",
+          Teachers: 1,
+        },
+      },
+    ]);
 
-        res.status(200).json({ message: "success", data: teacherAllocationDetails });
-    } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: "Internal Server Error" });
-    }
+    res
+      .status(200)
+      .json({ message: "success", data: teacherAllocationDetails });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 });
-
-
-
 
 //Fetch attendance details so that the user can download
-router.get("/api/FetchAttendance", async (req, res) => {
-    try {
-        const attendanceData = await AttendanceModel.find({});
-        res.status(200).json({ message: "success", data: attendanceData });
-    } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: "Internal Server Error" });
-    }
+app.get("/api/FetchAttendance", async (req, res) => {
+  try {
+    const attendanceData = await AttendanceModel.find({});
+    res.status(200).json({ message: "success", data: attendanceData });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 });
-
 
 //Fetch classroom collection
-router.get("/api/FetchClassRoom", async (req, res) => {
-    try {
-        const classRoomData = await ClassRoomModel.find({});
-        res.status(200).json({ message: "success", data: classRoomData });
-    } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: "Internal Server Error" });
-    }
+app.get("/api/FetchClassRoom", async (req, res) => {
+  try {
+    const classRoomData = await ClassRoomModel.find({});
+    res.status(200).json({ message: "success", data: classRoomData });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 });
 
-//Fetch student collection 
-router.get("/api/FetchStudent", async (req, res) => {
-    try {
-        const studentData = await StudentModel.find({});
-        res.status(200).json({ message: "success", data: studentData });
-    } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: "Internal Server Error" });
-    }
+//Fetch student collection
+app.get("/api/FetchStudent", async (req, res) => {
+  try {
+    const studentData = await StudentModel.find({});
+    res.status(200).json({ message: "success", data: studentData });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 });
 
 //Fetch Teacher collection
-router.get("/api/FetchTeacher", async (req, res) => {
-    try {
-        const teacherData = await TeacherModel.find({});
-        res.status(200).json({ message: "success", data: teacherData });
-    } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: "Internal Server Error" });
-    }
+app.get("/api/FetchTeacher", async (req, res) => {
+  try {
+    const teacherData = await TeacherModel.find({});
+    res.status(200).json({ message: "success", data: teacherData });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 });
 
 //Fetch timetable collection
-router.get("/api/FetchTimetable", async (req, res) => {
-    try {
-        const timetableData = await TimetableModel.find({});
-        res.status(200).json({ message: "success", data: timetableData });
-    } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: "Internal Server Error" });
-    }
+app.get("/api/FetchTimetable", async (req, res) => {
+  try {
+    const timetableData = await TimetableModel.find({});
+    res.status(200).json({ message: "success", data: timetableData });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 });
 
+import multer from "multer";
+import csvParser from "csv-parser";
+import fs from "fs";
+import { Readable } from "stream";
 
+const storage = multer.memoryStorage(); // Store the file in memory
+const upload = multer({ storage: storage });
 
-// uploadStudents.js
+app.post("/api/uploadStudents", upload.single("file"), (req, res) => {
+  const results = [];
 
-const multer = require('multer');
-const csvParser = require('csv-parser');
-const fs = require('fs');
-
-const upload = multer({ dest: 'uploads/' });
-
-router.post('/api/uploadStudents', upload.single('file'), (req, res) => {
-    const results = [];
-
-    fs.createReadStream(req.file.path)
-        .pipe(csvParser())
-        .on('data', (data) => results.push(data))
-        .on('end', () => {
-            StudentModel.insertMany(results)
-                .then(() => {
-                    res.status(200).json({ message: 'CSV file uploaded and data saved to the Student collection.' });
-                })
-                .catch((error) => {
-                    console.log(error);
-                    res.status(500).json({ message: 'Internal Server Error' });
-                });
+  fs.createReadStream(req.file.path)
+    .pipe(csvParser())
+    .on("data", (data) => results.push(data))
+    .on("end", () => {
+      StudentModel.insertMany(results)
+        .then(() => {
+          res.status(200).json({
+            message:
+              "CSV file uploaded and data saved to the Student collection.",
+          });
+        })
+        .catch((error) => {
+          console.log(error);
+          res.status(500).json({ message: "Internal Server Error" });
         });
+    });
 });
 
+app.post("/api/uploadTeachers", upload.single("file"), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: "No file uploaded." });
+  }
 
-// uploadTeachers.js
+  const results = [];
 
-const multer = require('multer');
-const csvParser = require('csv-parser');
-const fs = require('fs');
+  const readableStream = new Readable();
+  readableStream.push(req.file.buffer);
+  readableStream.push(null);
 
-const upload = multer({ dest: 'uploads/' });
-
-router.post('/api/uploadTeachers', upload.single('file'), (req, res) => {
-    const results = [];
-
-    fs.createReadStream(req.file.path)
-        .pipe(csvParser())
-        .on('data', (data) => results.push(data))
-        .on('end', () => {
-            TeacherModel.insertMany(results)
-                .then(() => {
-                    res.status(200).json({ message: 'CSV file uploaded and data saved to the Teacher collection.' });
-                })
-                .catch((error) => {
-                    console.log(error);
-                    res.status(500).json({ message: 'Internal Server Error' });
-                });
+  readableStream
+    .pipe(csvParser())
+    .on("data", (data) => results.push(data))
+    .on("end", () => {
+      TeacherModel.insertMany(results)
+        .then(() => {
+          res.status(200).json({
+            message:
+              "CSV file uploaded and data saved to the Teacher collection.",
+          });
+        })
+        .catch((error) => {
+          console.log(error);
+          res.status(500).json({ message: "Internal Server Error" });
         });
+    });
 });
 
+// // uploadClassrooms.js
+// const multer = require("multer");
+// const csvParser = require("csv-parser");
+// const fs = require("fs");
 
-// uploadClassrooms.js
-const multer = require('multer');
-const csvParser = require('csv-parser');
-const fs = require('fs');
+// const upload = multer({ dest: "uploads/" });
 
+app.post("/api/uploadClassrooms", upload.single("file"), (req, res) => {
+  const results = [];
 
-const upload = multer({ dest: 'uploads/' });
-
-router.post('/api/uploadClassrooms', upload.single('file'), (req, res) => {
-    const results = [];
-
-    fs.createReadStream(req.file.path)
-        .pipe(csvParser())
-        .on('data', (data) => results.push(data))
-        .on('end', () => {
-            ClassRoomModel.insertMany(results)
-                .then(() => {
-                    res.status(200).json({ message: 'CSV file uploaded and data saved to the ClassRoom collection.' });
-                })
-                .catch((error) => {
-                    console.log(error);
-                    res.status(500).json({ message: 'Internal Server Error' });
-                });
+  fs.createReadStream(req.file.path)
+    .pipe(csvParser())
+    .on("data", (data) => results.push(data))
+    .on("end", () => {
+      ClassRoomModel.insertMany(results)
+        .then(() => {
+          res.status(200).json({
+            message:
+              "CSV file uploaded and data saved to the ClassRoom collection.",
+          });
+        })
+        .catch((error) => {
+          console.log(error);
+          res.status(500).json({ message: "Internal Server Error" });
         });
+    });
 });
 
+// // uploadTimetable.js
+// const multer = require("multer");
+// const csvParser = require("csv-parser");
+// const fs = require("fs");
 
-// uploadTimetable.js
-const multer = require('multer');
-const csvParser = require('csv-parser');
-const fs = require('fs');
+// const upload = multer({ dest: "uploads/" });
 
-const upload = multer({ dest: 'uploads/' });
+app.post("/api/uploadTimetable", upload.single("file"), (req, res) => {
+  const results = [];
 
-router.post('/api/uploadTimetable', upload.single('file'), (req, res) => {
-    const results = [];
-
-    fs.createReadStream(req.file.path)
-        .pipe(csvParser())
-        .on('data', (data) => results.push(data))
-        .on('end', () => {
-            TimetableModel.insertMany(results)
-                .then(() => {
-                    res.status(200).json({ message: 'CSV file uploaded and data saved to the Timetable collection.' });
-                })
-                .catch((error) => {
-                    console.log(error);
-                    res.status(500).json({ message: 'Internal Server Error' });
-                });
+  fs.createReadStream(req.file.path)
+    .pipe(csvParser())
+    .on("data", (data) => results.push(data))
+    .on("end", () => {
+      TimetableModel.insertMany(results)
+        .then(() => {
+          res.status(200).json({
+            message:
+              "CSV file uploaded and data saved to the Timetable collection.",
+          });
+        })
+        .catch((error) => {
+          console.log(error);
+          res.status(500).json({ message: "Internal Server Error" });
         });
+    });
 });
-
-
-
-const uploadStudentsRouter = require('./path-to-uploadStudents-router');
-const uploadTeachersRouter = require('./path-to-uploadTeachers-router');
-const uploadClassroomsRouter = require('./path-to-uploadClassrooms-router');
-const uploadTimetableRouter = require('./path-to-uploadTimetable-router');
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Use routers
-app.use(uploadStudentsRouter);
-app.use(uploadTeachersRouter);
-app.use(uploadClassroomsRouter);
-app.use(uploadTimetableRouter);
-
-module.exports = router;
