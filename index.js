@@ -203,15 +203,14 @@ app.post("/api/Teacher", async (req, res) => {
 
 app.post("/api/Student", async (req, res) => {
   try {
-    const { SName, SDOB, Division, USN, Rno, Sem, Course } = req.body;
+    const { SName, Division, USN, Rno, Sem, Branch } = req.body;
     const newStudentData = new StudentModel({
       SName,
-      SDOB,
       Division,
       USN,
       Rno,
       Sem,
-      Course,
+      Branch,
     });
     await newStudentData.save();
     res.status(200).json({ message: "success", json: newStudentData });
@@ -441,9 +440,17 @@ const storage = multer.memoryStorage(); // Store the file in memory
 const upload = multer({ storage: storage });
 
 app.post("/api/uploadStudents", upload.single("file"), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: "No file uploaded." });
+  }
+
   const results = [];
 
-  fs.createReadStream(req.file.path)
+  const readableStream = new Readable();
+  readableStream.push(req.file.buffer);
+  readableStream.push(null);
+
+  readableStream
     .pipe(csvParser())
     .on("data", (data) => results.push(data))
     .on("end", () => {
@@ -498,9 +505,18 @@ app.post("/api/uploadTeachers", upload.single("file"), (req, res) => {
 // const upload = multer({ dest: "uploads/" });
 
 app.post("/api/uploadClassrooms", upload.single("file"), (req, res) => {
+  console.log(req.file);
+  if (!req.file) {
+    return res.status(400).json({ message: "No file uploaded." });
+  }
+
   const results = [];
 
-  fs.createReadStream(req.file.path)
+  const readableStream = new Readable();
+  readableStream.push(req.file.buffer);
+  readableStream.push(null);
+
+  readableStream
     .pipe(csvParser())
     .on("data", (data) => results.push(data))
     .on("end", () => {
@@ -508,7 +524,7 @@ app.post("/api/uploadClassrooms", upload.single("file"), (req, res) => {
         .then(() => {
           res.status(200).json({
             message:
-              "CSV file uploaded and data saved to the ClassRoom collection.",
+              "CSV file uploaded and data saved to the Classroom collection.",
           });
         })
         .catch((error) => {

@@ -4,9 +4,6 @@ const schema = new mongoose.Schema({
   SName: {
     type: String,
   },
-  SDOB: {
-    type: String,
-  },
   Division: {
     type: String,
   },
@@ -17,7 +14,7 @@ const schema = new mongoose.Schema({
     type: Number,
   },
   Sem: {
-    type: Number,
+    type: String,
   },
   Branch: {
     type: String,
